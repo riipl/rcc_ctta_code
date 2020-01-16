@@ -1,0 +1,88 @@
+---
+title: "Cleaning and Prepping RCC CTTA DAata"
+author: "Akshay Jaggi, Sandy Napel"
+date: "16/01/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(irr)
+```
+
+# DATA Import and Cleaning
+This code is dedicated entirely troubleshooting data import and cleaning
+Users without access to the RCC Cohort should write their own cleaning code
+
+```{r import_data}
+# Upload the Full Final Data Set, these files are not provided to users
+dat_full1  = read.csv("rcc_final1.csv")[-1]
+dat_full2  = read.csv("rcc_final2.csv")[-1]
+true_names = read.csv("true_feature_names.csv",header=FALSE)
+```
+
+```{r cleanup}
+colnames(dat_full1) = true_names$V1
+colnames(dat_full2) = true_names$V1
+dat_full1 = dat_full1[-1:-2]
+dat_full2 = dat_full2[-1:-2]
+labels = dat_full1$labels
+```
+
+```{r drop_labels}
+# ONLY RUN THIS ONCE BEWARE
+dat_full1  = subset(dat_full1,select = -c(labels))
+dat_full2  = subset(dat_full2,select = -c(labels))
+dat_full1  = dat_full1[-c(916:920,1700:1704)]
+dat_full2  = dat_full2[-c(916:920,1700:1704)]
+```
+
+# ICC Filtering
+This code implements ICC Filtering!
+```{r calculate_iccs}
+find_iccs = function(data_set1, data_set2) {
+  iccs = matrix(ncol=ncol(data_set1))
+  for(i in 1:ncol(data_set1)) {
+    tmp = irr::icc(t(rbind(data_set1[,i],data_set2[,i])))
+    iccs[i] = tmp$value
+  }
+  iccs[is.na(iccs)] = 0
+  iccs = data.frame(iccs)
+  colnames(iccs) = colnames(data_set1)
+  return(iccs)
+}
+
+icc_cut = function(iccs, cut_off) {
+  to_keep = numeric()
+  for(i in 1:length(iccs)) {
+    if(abs(iccs[i]) >= cut_off) {
+      to_keep = c(to_keep,i)
+    }
+  }
+  return(to_keep)
+}
+
+# Calculate Full ICCs
+full_iccs = find_iccs(dat_full1, dat_full2)
+```
+
+```{r extract_subset}
+dat_subset1 = dat_full1[grep("intensity|texture", colnames(dat_full1))]
+dat_subset2 = dat_full2[grep("intensity|texture", colnames(dat_full2))]
+partial_iccs = full_iccs[grep("intensity|texture", colnames(full_iccs))]
+```
+
+# Further Data Cleaning
+Addressing remaining cleaning problems
+```{r read data, include = FALSE}
+data_subset_c1 = data.frame(dat_subset1)
+data_subset_c1["Label"] = as.factor(labels)
+levels(data_subset_c1$Label)[levels(data_subset_c1$Label) == "0"] = "X0"
+levels(data_subset_c1$Label)[levels(data_subset_c1$Label) == "1"] = "X1"
+colnames(data_subset_c1) = str_replace_all(colnames(data_subset_c1), "[^[:alnum:]]", ".")
+data_subset_c2  =  data.frame(dat_subset2)
+data_subset_c2["Label"] = as.factor(labels)
+levels(data_subset_c2$Label)[levels(data_subset_c2$Label) == "0"] = "X0"
+levels(data_subset_c2$Label)[levels(data_subset_c2$Label) == "1"] = "X1"
+colnames(data_subset_c2) = str_replace_all(colnames(data_subset_c2), "[^[:alnum:]]", ".")
+```
+
