@@ -277,3 +277,94 @@ ml_battery_overhead = function(all_data,target,number_of_validations,parameters,
     )
   )
 }
+
+
+ml_battery_overhead_icc = function(data_set1, data_set2, target, n_validations, parameters, seed) {
+  set.seed(seed)
+  summaries1 = array(dim = c(
+    "outer" = n_validations,
+    lengths(parameters),
+    "stats" = 3
+  ))
+  summaries2 = array(dim = c(
+    "outer" = n_validations,
+    lengths(parameters),
+    "stats" = 3
+  ))
+  all_importances1 = list()
+  all_importances2 = list()
+  train_indices = createDataPartition(data_set1[[target]], p = 0.7, times = n_validations)
+  parameters_no_icc = parameters
+  parameters_no_icc[["cutoffs"]] <- NULL
+  for (i in 1:n_validations) {
+    training1 = data_set1[unlist(train_indices[i]), ]
+    testing1  = data_set1[-unlist(train_indices[i]), ]
+    training2 = data_set2[unlist(train_indices[i]), ]
+    testing2  = data_set2[-unlist(train_indices[i]), ]
+    summaries_by_icc1 =  array(dim = c(lengths(parameters), 3))
+    summaries_by_icc2 =  array(dim = c(lengths(parameters), 3))
+    importances_by_icc1 = list()
+    importances_by_icc2 = list()
+    for(cutoff in as.list(enumerate(parameters$cutoffs))) {
+      to_keep = icc_filter(training1, training2,cutoff$value)
+      
+      training_filt1 = drop_by_icc(training1, to_keep, target)
+      testing_filt1 = drop_by_icc(testing1, to_keep, target)
+      training_filt2 = drop_by_icc(training2, to_keep, target)
+      testing_filt2 = drop_by_icc(testing2, to_keep, target)
+        
+      battery_out1 = ml_battery(training_filt1, testing_filt1, target, parameters_no_icc)
+      battery_out2 = ml_battery(training_filt2, testing_filt2, target, parameters_no_icc)
+      
+      summaries_by_icc1[cutoff$index, , , , ] = battery_out1$summaries
+      summaries_by_icc2[cutoff$index, , , , ] = battery_out2$summaries
+      importances_by_icc1[[as.character(cutoff$value)]] = battery_out1$importances
+      importances_by_icc2[[as.character(cutoff$value)]] = battery_out2$importances
+    }
+    summaries1[i, , , , , ] = summaries_by_icc1
+    summaries2[i, , , , , ] = summaries_by_icc2
+    all_importances1[[paste("trial", i, sep = "_")]] = importances_by_icc1
+    all_importances2[[paste("trial", i, sep = "_")]] = importances_by_icc2
+  }
+  return(
+    list(
+      "means1" =  summaries1,
+      "means2" =  summaries2,
+      "importances1" = all_importances1,
+      "importances2" = all_importances2
+    )
+  )
+}
+
+icc_filter = function(frame1, frame2, cutoff) {
+  iccs = find_iccs(frame1, frame2)
+  to_keep = icc_cut(iccs, cutoff)
+}
+
+find_iccs = function(data_set1, data_set2) {
+  iccs = matrix(ncol=ncol(data_set1))
+  for(i in 1:ncol(data_set1)) {
+    tmp = irr::icc(t(rbind(data_set1[,i],data_set2[,i])))
+    iccs[i] = tmp$value
+  }
+  iccs[is.na(iccs)] = 0
+  iccs = data.frame(iccs)
+  colnames(iccs) = colnames(data_set1)
+  return(iccs)
+}
+
+icc_cut = function(iccs, cut_off) {
+  to_keep = numeric()
+  for(i in 1:length(iccs)) {
+    if(abs(iccs[i]) >= cut_off) {
+      to_keep = c(to_keep,i)
+    }
+  }
+  return(to_keep)
+}
+
+drop_by_icc = function(data, to_keep, target) {
+  data_filt = data[,to_keep]
+  data_filt[[target]] = data[[target]]
+  return(data_filt)
+}
